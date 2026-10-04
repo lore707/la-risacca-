@@ -1,0 +1,16 @@
+# Dipendenze e build
+node_modules/
+dist/
+build/
+.next/
+coverage/
+
+# Configurazioni locali e credenziali
+.env
+.env.*
+!.env.example
+
+# Log e file del sistema operativo
+*.log
+.DS_Store
+Thumbs.db
