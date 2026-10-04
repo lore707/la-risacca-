@@ -16,7 +16,7 @@ npm run dev
 - Archivio: http://127.0.0.1:5173/admin/prenotazioni
 - Accesso: `/admin/login`, email/password Supabase Auth. Nessuna registrazione pubblica.
 
-Il repository è inizializzato con Git e il remote `origin` punta a `https://github.com/lore707/la-risacca-.git`, pubblico per scelta dell'utente. `.env`, dipendenze e build sono esclusi dal caricamento. La pubblicazione su Render non è ancora configurata.
+Il repository è su `https://github.com/lore707/la-risacca-.git`, pubblico per scelta dell'utente. `.env`, dipendenze e build sono esclusi dal caricamento. L'app è pubblicata su `https://la-risacca.onrender.com`: booking `/prenota`, dashboard `/admin`. Render richiede la regola Rewrite `/* → /index.html` e le due variabili VITE Supabase durante la build.
 
 ## Funzionamento
 
@@ -42,12 +42,14 @@ Dashboard con alert, controlli giorno, quattro KPI, richieste dominanti e confer
 
 - `src/pages/Prenota.tsx`: booking pubblico.
 - `src/pages/Login.tsx`: autenticazione.
+- `src/pages/ResetPassword.tsx`: nuova password dopo il link email.
 - `src/pages/Dashboard.tsx`: coda globale, riepilogo e confermate.
 - `src/pages/Reservations.tsx`: archivio filtrato e paginato.
 - `src/components/AdminArea.tsx`: protezione di tutte le route admin, header e configurazione informativa.
 - `src/components/ReservationList.tsx`: richieste, dettagli e decisioni.
 - `src/components/Brand.tsx`, `BookingField.tsx`, `BookingSummary.tsx`: componenti condivisi/pubblici.
 - `src/lib/supabase.ts`: unico client; `reservations.ts`: creazione; `admin.ts`: operazioni admin; `bookingValidation.ts`: validazioni; `reservationDisplay.ts`: etichette/date.
+- `src/lib/passwordRecovery.ts`: richiesta email di recupero, gestione sessione e salvataggio password con Supabase Auth.
 - `src/types/reservation.ts`: contratti dati.
 - `src/styles.css`: stile comune e responsive.
 - `supabase/migrations/`: cronologia SQL; `supabase/tests/`: test PostgreSQL locale PGlite.
@@ -78,6 +80,14 @@ on conflict (user_id) do nothing;
 ```
 
 L'account richiesto dall'utente è già abilitato. Per revocare l'accesso eliminare soltanto l'abilitazione privata, non l'account/prenotazioni. Login con password reale ancora da verificare nel browser.
+
+### Recupero password
+
+In Supabase → Authentication → URL Configuration impostare **Site URL** a `https://la-risacca.onrender.com` e aggiungere **Redirect URLs** `https://la-risacca.onrender.com/admin/password`. Per test locali autorizzare separatamente `http://127.0.0.1:5173/admin/password`. Non lasciare localhost come Site URL di produzione: le email inviate dalla dashboard Supabase usano quel valore come destinazione predefinita.
+
+Nel login dell'app premere **Password dimenticata?**, inserire l'email e richiedere il link. L'app invia un redirect esplicito alla pagina `/admin/password` sul dominio corrente. Aprire il link più recente e scegliere una nuova password (almeno otto caratteri, conferma uguale; Supabase può imporre ulteriori requisiti). Il form appare solo con una sessione valida; la password è aggiornata tramite `auth.updateUser` e il successo viene mostrato solo dopo la risposta del backend. Account e permessi admin restano invariati. La modifica riguarda solo il proprio account autenticato, senza accesso amministrativo al database.
+
+I link recovery che arrivano alla radice del sito vengono instradati alla pagina password; quelli scaduti mostrano un messaggio con invito a richiedere una nuova email. I token sono gestiti dal SDK e non vengono copiati in log o nel repository. Non è possibile recuperare la vecchia password. La configurazione URL e la consegna dell'email reale restano da verificare dall'utente: la sessione non ha accesso al pannello Auth di Supabase né alla sua casella email.
 
 ## Verifiche
 
