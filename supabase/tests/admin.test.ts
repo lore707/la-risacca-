@@ -5,15 +5,25 @@ import {afterAll,beforeAll,expect,it} from 'vitest'
 const db=new PGlite(),admin=randomUUID(),other=randomUUID()
 beforeAll(async()=>{
  await db.exec(`create role anon;create role authenticated;create role service_role;grant usage on schema public to anon,authenticated,service_role;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;`)
- for(const file of ['202610040001_create_reservations.sql','202610040002_admin_dashboard.sql','202610040003_service_planning.sql','202610040004_simple_dashboard.sql'])await db.exec(await readFile(new URL(`../migrations/${file}`,import.meta.url),'utf8'))
+ for(const file of ['202610040001_create_reservations.sql','202610040002_admin_dashboard.sql','202610040003_service_planning.sql','202610040004_simple_dashboard.sql','202610040005_public_dashboard.sql'])await db.exec(await readFile(new URL(`../migrations/${file}`,import.meta.url),'utf8'))
  await db.query('insert into auth.users values ($1),($2)',[admin,other]);await db.query('insert into private.reservation_admins(user_id) values($1)',[admin])
 },30000)
 afterAll(async()=>{await db.close()})
 async function asUser(id:string,work:()=>Promise<void>,role='authenticated') {await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec(`set role ${role}`);try{await work()}finally{await db.exec('reset role')}}
 async function create(name='TEST'){const id=randomUUID();await db.query("select public.create_reservation($1,'2099-10-12','19:30',4,$2,'Dashboard','+39 000 1234567')",[id,name]);return id}
-it('preserva creazione pubblica e nega lettura/decisioni a client non autorizzati',async()=>{
- await asUser('',async()=>{await create();await expect(db.query("select public.reservation_overview('2099-10-12','dinner')")).rejects.toThrow(/permission denied/);await expect(db.query('select * from public.reservations')).rejects.toThrow(/permission denied/)},'anon')
- await asUser(other,async()=>{await expect(db.query('select public.search_reservations()')).rejects.toThrow(/Admin access required/);await expect(db.query("select public.decide_reservation($1,'confirmed')",[randomUUID()])).rejects.toThrow(/Admin access required/)})
+it('consente lettura e decisioni via RPC senza login, preservando restrizioni sulle tabelle',async()=>{
+ await asUser('',async()=>{
+ const id=await create()
+ expect((await db.query<{v:{total:number}}>('select public.search_reservations() v')).rows[0].v.total).toBeGreaterThan(0)
+ await db.query("select public.reservation_overview('2099-10-12','dinner')")
+ expect((await db.query<{status:string}>("select * from public.decide_reservation($1,'confirmed')",[id])).rows[0].status).toBe('confirmed')
+ const rejected=await create()
+ expect((await db.query<{status:string}>("select * from public.decide_reservation($1,'rejected')",[rejected])).rows[0].status).toBe('rejected')
+ await expect(db.query('select * from public.reservations')).rejects.toThrow(/permission denied/)
+ await expect(db.query('select * from private.reservation_admins')).rejects.toThrow(/permission denied/)
+ await expect(db.query('select public.get_service_config()')).rejects.toThrow(/permission denied/)
+ },'anon')
+ await asUser(other,async()=>{expect((await db.query<{v:{total:number}}>('select public.search_reservations() v')).rows[0].v.total).toBeGreaterThan(0)})
 })
 it('conferma senza tavolo, conserva contatti e blocca seconde decisioni',async()=>{
  const id=await create('Marco');await asUser(admin,async()=>{const saved=(await db.query<{status:string;table_id:null;party_size:number}>("select * from public.decide_reservation($1,'confirmed')",[id])).rows[0];expect(saved.status).toBe('confirmed');expect(saved.table_id).toBeNull();expect(saved.party_size).toBe(4);await expect(db.query("select public.decide_reservation($1,'rejected')",[id])).rejects.toThrow(/no longer pending/);await expect(db.query('select * from public.reservations')).rejects.toThrow(/permission denied/);await expect(db.query('select public.get_service_config()')).rejects.toThrow(/permission denied/)})
@@ -29,4 +39,10 @@ it('filtra e conta tutte le righe anche oltre pagina 50; separa cancellate e rif
  await expect(db.query("select public.search_reservations('bad')")).rejects.toThrow(/Invalid filter/)
  })
 })
-it('la revoca admin interrompe subito le RPC',async()=>{await db.query('delete from private.reservation_admins where user_id=$1',[admin]);await asUser(admin,async()=>{await expect(db.query('select public.search_reservations()')).rejects.toThrow(/Admin access required/)})})
+it('conserva gli account privati senza richiederli per le tre RPC pubbliche',async()=>{
+ await db.query('delete from private.reservation_admins where user_id=$1',[admin])
+ await asUser(admin,async()=>{
+ expect((await db.query<{allowed:boolean}>('select public.is_reservation_admin() allowed')).rows[0].allowed).toBe(false)
+ expect((await db.query<{v:{total:number}}>('select public.search_reservations() v')).rows[0].v.total).toBeGreaterThan(0)
+ })
+})
