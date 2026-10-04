@@ -1,0 +1,17 @@
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router'
+import { searchReservations } from '../lib/admin'
+import { restaurantToday } from '../lib/bookingValidation'
+import ReservationList from '../components/ReservationList'
+import { statusLabels, shiftDay } from '../lib/reservationDisplay'
+import type { ReservationPage, ReservationStatus } from '../types/reservation'
+export default function Reservations() {
+ const [params]=useSearchParams(),initialDate=params.get('date')||'',initialStatus=params.get('status')||''
+ const [period,setPeriod]=useState(initialDate?'selected':'today'),[status,setStatus]=useState<ReservationStatus|''>(Object.hasOwn(statusLabels,initialStatus)?initialStatus as ReservationStatus:''),[search,setSearch]=useState(''),[page,setPage]=useState(0),[refresh,setRefresh]=useState(0)
+ const [data,setData]=useState<ReservationPage|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true)
+ useEffect(()=>{let active=true;const today=restaurantToday(),from=period==='all'?'':period==='selected'?initialDate:period==='tomorrow'?shiftDay(today,1):today,to=period==='week'?shiftDay(today,6):from
+ const timer=setTimeout(()=>{void searchReservations({status,from,to,search,page}).then(v=>{if(active){setData(v);setLoading(false)}}).catch(()=>{if(active){setError('Impossibile caricare le prenotazioni. Riprova.');setLoading(false)}})},250)
+ return()=>{active=false;clearTimeout(timer)}},[period,status,search,page,refresh,initialDate])
+ function reset(){setPage(0);setLoading(true);setError('')}
+ return <><div className="panel-heading"><div><p className="eyebrow">Archivio prenotazioni</p><h1>Prenotazioni</h1></div><button className="button-secondary" disabled={loading} onClick={()=>{reset();setRefresh(x=>x+1)}}>Aggiorna</button></div><div className="dashboard-filters"><label className="field">Periodo<select value={period} onChange={e=>{reset();setPeriod(e.target.value)}}>{initialDate&&<option value="selected">{initialDate.split('-').reverse().join('/')}</option>}<option value="today">Oggi</option><option value="tomorrow">Domani</option><option value="week">Prossimi 7 giorni</option><option value="all">Tutte le date</option></select></label><label className="field">Stato<select value={status} onChange={e=>{reset();setStatus(e.target.value as ReservationStatus|'')}}><option value="">Tutti gli stati</option>{Object.entries(statusLabels).map(([k,l])=><option key={k} value={k}>{l}</option>)}</select></label><label className="field">Nome o telefono<input type="search" maxLength={200} value={search} onChange={e=>{reset();setSearch(e.target.value)}}/></label></div><section className="admin-panel">{loading?<p role="status">Caricamento prenotazioni…</p>:error?<><p role="alert">{error}</p><button className="button-primary" onClick={()=>{reset();setRefresh(x=>x+1)}}>Riprova</button></>:data&&<><p className="scope-note">{data.total} prenotazioni trovate</p><ReservationList rows={data.rows} onChanged={()=>{setPage(0);setError('');setRefresh(x=>x+1)}}/>{!data.rows.length&&<p className="empty-state">Nessuna prenotazione corrisponde ai filtri.</p>}<div className="dashboard-pagination"><button className="button-secondary" disabled={page===0} onClick={()=>{setLoading(true);setPage(x=>x-1)}}>Precedenti</button><span>Pagina {page+1} di {Math.max(1,Math.ceil(data.total/50))}</span><button className="button-secondary" disabled={(page+1)*50>=data.total} onClick={()=>{setLoading(true);setPage(x=>x+1)}}>Successive</button></div></>}</section></>
+}
